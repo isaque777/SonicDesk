@@ -36,11 +36,28 @@ $pnlLogo.Location = New-Object System.Drawing.Point(0, 0)
 $pnlLogo.BackColor = [System.Drawing.Color]::White
 $pnlLogo.BorderStyle = "FixedSingle"
 
-# Add Logo Picture Box
+# Add Title Label (moved left)
+$lblTitle = New-Object System.Windows.Forms.Label
+$lblTitle.Text = "SonicDesk - Audio Management Suite"
+$lblTitle.Location = New-Object System.Drawing.Point(20, 15)
+$lblTitle.Width = 500
+$lblTitle.Height = 30
+$lblTitle.Font = New-Object System.Drawing.Font("Segoe UI", 16, [System.Drawing.FontStyle]::Bold)
+$lblTitle.ForeColor = [System.Drawing.Color]::FromArgb(0, 120, 215)
+
+$lblSubtitle = New-Object System.Windows.Forms.Label
+$lblSubtitle.Text = "Professional MP3 Analysis, Playlist Creation & Bitrate Reference"
+$lblSubtitle.Location = New-Object System.Drawing.Point(20, 48)
+$lblSubtitle.Width = 600
+$lblSubtitle.Height = 20
+$lblSubtitle.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+$lblSubtitle.ForeColor = [System.Drawing.Color]::Gray
+
+# Add Logo Picture Box (moved to right)
 $picLogo = New-Object System.Windows.Forms.PictureBox
-$picLogo.Width = 90
+$picLogo.Width = 200
 $picLogo.Height = 80
-$picLogo.Location = New-Object System.Drawing.Point(8, 5)
+$picLogo.Location = New-Object System.Drawing.Point(980, 5)
 $picLogo.SizeMode = "Zoom"
 
 # Load header logo from file
@@ -49,31 +66,14 @@ if (Test-Path $headerLogoPath) {
     $picLogo.Image = [System.Drawing.Image]::FromFile($headerLogoPath)
 }
 
-# Add Title Label
-$lblTitle = New-Object System.Windows.Forms.Label
-$lblTitle.Text = "SonicDesk - Audio Management Suite"
-$lblTitle.Location = New-Object System.Drawing.Point(100, 15)
-$lblTitle.Width = 500
-$lblTitle.Height = 30
-$lblTitle.Font = New-Object System.Drawing.Font("Segoe UI", 16, [System.Drawing.FontStyle]::Bold)
-$lblTitle.ForeColor = [System.Drawing.Color]::FromArgb(0, 120, 215)
-
-$lblSubtitle = New-Object System.Windows.Forms.Label
-$lblSubtitle.Text = "Professional MP3 Analysis, Playlist Creation & Bitrate Reference"
-$lblSubtitle.Location = New-Object System.Drawing.Point(100, 48)
-$lblSubtitle.Width = 600
-$lblSubtitle.Height = 20
-$lblSubtitle.Font = New-Object System.Drawing.Font("Segoe UI", 10)
-$lblSubtitle.ForeColor = [System.Drawing.Color]::Gray
-
-$pnlLogo.Controls.Add($picLogo)
 $pnlLogo.Controls.Add($lblTitle)
 $pnlLogo.Controls.Add($lblSubtitle)
+$pnlLogo.Controls.Add($picLogo)
 
 # Create Tab Control
 $tabControl = New-Object System.Windows.Forms.TabControl
 $tabControl.Width = 1160
-$tabControl.Height = 850
+$tabControl.Height = 810
 $tabControl.Location = New-Object System.Drawing.Point(10, 100)
 $tabControl.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Regular)
 
@@ -128,38 +128,61 @@ function Get-MP3Metadata {
                 $audioStream = $json.streams | Where-Object { $_.codec_type -eq "audio" } | Select-Object -First 1
                 
                 if ($audioStream) {
-                    # Get bitrate
-                    if ($audioStream.bit_rate) {
+                    # Get bitrate - try multiple sources
+                    if ($audioStream.bit_rate -and $audioStream.bit_rate -gt 0) {
                         $result.BitrateValue = [math]::Round([int]$audioStream.bit_rate / 1000)
                         $result.Bitrate = "$($result.BitrateValue) kbps"
-                    } elseif ($json.format.bit_rate) {
+                    } elseif ($json.format.bit_rate -and $json.format.bit_rate -gt 0) {
                         $result.BitrateValue = [math]::Round([int]$json.format.bit_rate / 1000)
                         $result.Bitrate = "$($result.BitrateValue) kbps"
+                    } else {
+                        # Calculate bitrate from file size and duration
+                        if ($json.format.duration -and $json.format.duration -gt 0) {
+                            $fileInfo = Get-Item $FilePath
+                            $durationSec = [double]$json.format.duration
+                            $bitrateCalculated = [math]::Round(($fileInfo.Length * 8) / $durationSec / 1000)
+                            if ($bitrateCalculated -gt 0 -and $bitrateCalculated -lt 1000) {
+                                $result.BitrateValue = $bitrateCalculated
+                                $result.Bitrate = "$bitrateCalculated kbps"
+                            }
+                        }
                     }
                     
                     # Get sample rate
-                    if ($audioStream.sample_rate) {
-                        $sampleRateKHz = [math]::Round([int]$audioStream.sample_rate / 1000)
-                        $result.SampleRate = "$sampleRateKHz kHz"
+                    if ($audioStream.sample_rate -and $audioStream.sample_rate -gt 0) {
+                        $sampleRateValue = [int]$audioStream.sample_rate
+                        if ($sampleRateValue -ge 1000) {
+                            $sampleRateKHz = [math]::Round($sampleRateValue / 1000, 1)
+                            $result.SampleRate = "$sampleRateKHz kHz"
+                        } else {
+                            $result.SampleRate = "$sampleRateValue Hz"
+                        }
                     }
                     
                     # Get channels
-                    if ($audioStream.channels) {
+                    if ($audioStream.channels -and $audioStream.channels -gt 0) {
                         if ($audioStream.channels -eq 2) { $result.Channels = "Stereo" }
                         elseif ($audioStream.channels -eq 1) { $result.Channels = "Mono" }
-                        else { $result.Channels = "$($audioStream.channels)ch" }
+                        else { $result.Channels = "$($audioStream.channels) Channels" }
                     }
                     
-                    # Detect encoding type
-                    if ($audioStream.codec_name -eq "mp3" -or $audioStream.codec_name -eq "libmp3lame") {
-                        $result.Encoding = "MP3"
-                    } else {
-                        $result.Encoding = $audioStream.codec_name
+                    # Detect encoding type and VBR/CBR
+                    if ($audioStream.codec_name) {
+                        $result.Encoding = $audioStream.codec_name.ToUpper()
+                    }
+                    
+                    # Detect VBR vs CBR using tags
+                    if ($audioStream.tags -and $audioStream.tags.encoder) {
+                        if ($audioStream.tags.encoder -match "VBR|LAME") {
+                            $result.Encoding = "MP3 (VBR)"
+                        } else {
+                            $result.Encoding = "MP3"
+                        }
                     }
                 }
                 
                 # Get duration
-                if ($json.format.duration) {
+                if ($json.format.duration -and $json.format.duration -gt 0) {
                     $seconds = [math]::Floor([double]$json.format.duration)
                     $minutes = [math]::Floor($seconds / 60)
                     $secs = $seconds % 60
@@ -168,16 +191,62 @@ function Get-MP3Metadata {
                 
                 # Get metadata tags
                 if ($json.format.tags) {
-                    $result.Title = $json.format.tags.title -or $json.format.tags.Title -or ""
-                    $result.Artist = $json.format.tags.artist -or $json.format.tags.Artist -or ""
-                    $result.Album = $json.format.tags.album -or $json.format.tags.Album -or ""
+                    $result.Title = if ($json.format.tags.title) { $json.format.tags.title } else { "" }
+                    $result.Artist = if ($json.format.tags.artist) { $json.format.tags.artist } else { "" }
+                    $result.Album = if ($json.format.tags.album) { $json.format.tags.album } else { "" }
                 }
             }
-            return $result
+            
+            # If we got valid data, return it
+            if ($result.BitrateValue -gt 0 -or $result.Duration -ne "Unknown") {
+                return $result
+            }
         } catch { }
     }
     
-    # Method 2: Use Windows Media Player as fallback
+    # Method 2: Use Shell.Application for detailed properties
+    try {
+        $shell = New-Object -ComObject Shell.Application
+        $folder = $shell.Namespace((Split-Path $FilePath))
+        $file = $folder.ParseName((Split-Path $FilePath -Leaf))
+        
+        # Get extended properties
+        $bitrateShell = $folder.GetDetailsOf($file, 27)
+        if ($bitrateShell -and $bitrateShell -match '\d+') {
+            $result.BitrateValue = [int]($bitrateShell -replace '\D','')
+            $result.Bitrate = "$($result.BitrateValue) kbps"
+        }
+        
+        # Get sample rate
+        $sampleRateShell = $folder.GetDetailsOf($file, 28)
+        if ($sampleRateShell -and $sampleRateShell -match '\d+') {
+            $sampleVal = [int]($sampleRateShell -replace '\D','')
+            if ($sampleVal -ge 1000) {
+                $result.SampleRate = "$([math]::Round($sampleVal/1000)) kHz"
+            } else {
+                $result.SampleRate = "$sampleVal Hz"
+            }
+        }
+        
+        # Get channels
+        $channelsShell = $folder.GetDetailsOf($file, 30)
+        if ($channelsShell) { 
+            if ($channelsShell -match "2|Stereo") { $result.Channels = "Stereo" }
+            elseif ($channelsShell -match "1|Mono") { $result.Channels = "Mono" }
+            else { $result.Channels = $channelsShell }
+        }
+        
+        # Get duration
+        $durationShell = $folder.GetDetailsOf($file, 21)
+        if ($durationShell -and $durationShell -match '\d+:\d+') {
+            $result.Duration = $durationShell
+        }
+        
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell) | Out-Null
+        return $result
+    } catch { }
+    
+    # Method 3: Use Windows Media Player as fallback
     try {
         $wmp = New-Object -ComObject "WMPlayer.OCX"
         $media = $wmp.newMedia($FilePath)
@@ -212,44 +281,26 @@ function Get-MP3Metadata {
         
         $result.Encoding = "MP3"
         
-        # Get title, artist, album
-        $result.Title = $media.getItemInfo("Title")
-        $result.Artist = $media.getItemInfo("Artist")
-        $result.Album = $media.getItemInfo("Album")
-        
         [System.Runtime.InteropServices.Marshal]::ReleaseComObject($media) | Out-Null
         [System.Runtime.InteropServices.Marshal]::ReleaseComObject($wmp) | Out-Null
         return $result
     } catch { }
     
-    # Method 3: Use Shell.Application as fallback
-    try {
-        $shell = New-Object -ComObject Shell.Application
-        $folder = $shell.Namespace((Split-Path $FilePath))
-        $file = $folder.ParseName((Split-Path $FilePath -Leaf))
-        
-        # Get bitrate
-        $bitrateShell = $folder.GetDetailsOf($file, 27)
-        if ($bitrateShell -match '\d+') {
-            $result.BitrateValue = [int]($bitrateShell -replace '\D','')
-            $result.Bitrate = "$($result.BitrateValue) kbps"
+    # Method 4: Calculate from file size and duration if we have duration
+    if ($result.Duration -ne "Unknown" -and $result.BitrateValue -eq 0) {
+        $durationParts = $result.Duration -split ':'
+        if ($durationParts.Count -eq 2) {
+            $durationSeconds = ([int]$durationParts[0] * 60) + [int]$durationParts[1]
+            if ($durationSeconds -gt 0) {
+                $fileSize = (Get-Item $FilePath).Length
+                $calculatedBitrate = [math]::Round(($fileSize * 8 / 1000) / $durationSeconds)
+                if ($calculatedBitrate -gt 0 -and $calculatedBitrate -lt 1000) {
+                    $result.BitrateValue = $calculatedBitrate
+                    $result.Bitrate = "$calculatedBitrate kbps"
+                }
+            }
         }
-        
-        # Get sample rate
-        $sampleRateShell = $folder.GetDetailsOf($file, 28)
-        if ($sampleRateShell -and $sampleRateShell -match '\d+') {
-            $result.SampleRate = $sampleRateShell
-        }
-        
-        # Get channels
-        $channelsShell = $folder.GetDetailsOf($file, 30)
-        if ($channelsShell) { $result.Channels = $channelsShell }
-        
-        $result.Encoding = "MP3"
-        
-        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell) | Out-Null
-        return $result
-    } catch { }
+    }
     
     return $result
 }
@@ -287,10 +338,24 @@ $btnAnalyzerBrowse.Add_Click({
     }
 })
 
+# FFprobe status indicator
+$lblFFprobeStatus = New-Object System.Windows.Forms.Label
+if (Test-FFprobeAvailable) {
+    $lblFFprobeStatus.Text = "✓ FFprobe available (enhanced metadata)"
+    $lblFFprobeStatus.ForeColor = [System.Drawing.Color]::Green
+} else {
+    $lblFFprobeStatus.Text = "⚠ FFprobe not found - using fallback (download FFmpeg for better results)"
+    $lblFFprobeStatus.ForeColor = [System.Drawing.Color]::Orange
+}
+$lblFFprobeStatus.Location = New-Object System.Drawing.Point(120, 50)
+$lblFFprobeStatus.Width = 500
+$lblFFprobeStatus.Height = 20
+$lblFFprobeStatus.Font = New-Object System.Drawing.Font("Segoe UI", 8)
+
 # Options group
 $grpAnalyzerOptions = New-Object System.Windows.Forms.GroupBox
 $grpAnalyzerOptions.Text = "Export Options"
-$grpAnalyzerOptions.Location = New-Object System.Drawing.Point(20, 60)
+$grpAnalyzerOptions.Location = New-Object System.Drawing.Point(20, 80)
 $grpAnalyzerOptions.Width = 1040
 $grpAnalyzerOptions.Height = 100
 
@@ -322,7 +387,7 @@ $txtOutputFile.Height = 25
 
 # Progress Bar
 $progressAnalyzer = New-Object System.Windows.Forms.ProgressBar
-$progressAnalyzer.Location = New-Object System.Drawing.Point(20, 180)
+$progressAnalyzer.Location = New-Object System.Drawing.Point(20, 200)
 $progressAnalyzer.Width = 1040
 $progressAnalyzer.Height = 25
 $progressAnalyzer.Style = "Continuous"
@@ -330,16 +395,16 @@ $progressAnalyzer.Style = "Continuous"
 # Status label
 $lblAnalyzerStatus = New-Object System.Windows.Forms.Label
 $lblAnalyzerStatus.Text = "Ready"
-$lblAnalyzerStatus.Location = New-Object System.Drawing.Point(20, 215)
+$lblAnalyzerStatus.Location = New-Object System.Drawing.Point(20, 235)
 $lblAnalyzerStatus.Width = 1040
 $lblAnalyzerStatus.Height = 25
 $lblAnalyzerStatus.ForeColor = [System.Drawing.Color]::Blue
 
 # Results list
 $lstAnalyzerResults = New-Object System.Windows.Forms.ListView
-$lstAnalyzerResults.Location = New-Object System.Drawing.Point(20, 250)
+$lstAnalyzerResults.Location = New-Object System.Drawing.Point(20, 270)
 $lstAnalyzerResults.Width = 1040
-$lstAnalyzerResults.Height = 450
+$lstAnalyzerResults.Height = 430
 $lstAnalyzerResults.View = "Details"
 $lstAnalyzerResults.FullRowSelect = $true
 $lstAnalyzerResults.GridLines = $true
@@ -420,7 +485,7 @@ $btnAnalyzerStart.Add_Click({
                 $metadataCount++
             }
             
-            $encodingType = if ($info.Encoding -ne "Unknown") { $info.Encoding } else { "CBR" }
+            $encodingType = if ($info.Encoding -ne "Unknown") { $info.Encoding } else { "MP3" }
             
             $listItem = New-Object System.Windows.Forms.ListViewItem($file.Name)
             $listItem.SubItems.Add($info.Bitrate)
@@ -482,7 +547,7 @@ $btnAnalyzerStart.Add_Click({
         $allResults | Select-Object FileName, FolderPath, Bitrate, Quality, SampleRate, Channels, Duration, Encoding | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
         $lblAnalyzerStatus.Text = "Exported to: $outputFile"
         
-        # Export per folder (fixed filename issue)
+        # Export per folder
         if ($chkExportPerFolder.Checked) {
             $folderGroups = $allResults | Group-Object FolderPath
             $exportFolder = Join-Path $folderPath "MP3_Reports"
@@ -501,12 +566,15 @@ $btnAnalyzerStart.Add_Click({
     
     $lblAnalyzerStatus.Text = "Analysis complete! Processed $($allResults.Count) files ($metadataCount with metadata)"
     $btnAnalyzerStart.Enabled = $true
-    [System.Windows.Forms.MessageBox]::Show("Analysis complete!`nProcessed $($allResults.Count) files`n$metadataCount files had readable metadata", "Complete", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+    
+    $ffprobeMsg = if (Test-FFprobeAvailable) { " (FFprobe enhanced)" } else { "" }
+    [System.Windows.Forms.MessageBox]::Show("Analysis complete!`nProcessed $($allResults.Count) files`n$metadataCount files had readable metadata$ffprobeMsg", "Complete", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
 })
 
 $tabAnalyzer.Controls.Add($lblAnalyzerFolder)
 $tabAnalyzer.Controls.Add($txtAnalyzerFolder)
 $tabAnalyzer.Controls.Add($btnAnalyzerBrowse)
+$tabAnalyzer.Controls.Add($lblFFprobeStatus)
 $tabAnalyzer.Controls.Add($grpAnalyzerOptions)
 $grpAnalyzerOptions.Controls.Add($chkExportCSV)
 $grpAnalyzerOptions.Controls.Add($chkExportPerFolder)
@@ -657,21 +725,35 @@ $btnCreateStart.Add_Click({
             $relativePath = $relativePath -replace '\\', '/'
         }
         
-        # Try to get duration for extended M3U
-        try {
-            $wmp = New-Object -ComObject "WMPlayer.OCX"
-            $media = $wmp.newMedia($file.FullName)
-            $duration = $media.getItemInfo("Duration")
-            [System.Runtime.InteropServices.Marshal]::ReleaseComObject($media) | Out-Null
-            [System.Runtime.InteropServices.Marshal]::ReleaseComObject($wmp) | Out-Null
-            
-            if ($duration -and $duration -gt 0) {
-                $totalSeconds = [math]::Floor($duration)
-                $title = [System.IO.Path]::GetFileNameWithoutExtension($file.Name)
-                $playlistLines += "#EXTINF:$totalSeconds,$title"
-            }
-        } catch {
-            # Skip if can't get duration
+        # Try to get duration for extended M3U using FFprobe first
+        $durationFound = $false
+        if (Test-FFprobeAvailable) {
+            try {
+                $json = & ffprobe -v error -show_format -print_format json "$($file.FullName)" 2>$null | ConvertFrom-Json -ErrorAction SilentlyContinue
+                if ($json -and $json.format.duration) {
+                    $totalSeconds = [math]::Floor([double]$json.format.duration)
+                    $title = [System.IO.Path]::GetFileNameWithoutExtension($file.Name)
+                    $playlistLines += "#EXTINF:$totalSeconds,$title"
+                    $durationFound = $true
+                }
+            } catch { }
+        }
+        
+        # Fallback to WMP if FFprobe failed
+        if (-not $durationFound) {
+            try {
+                $wmp = New-Object -ComObject "WMPlayer.OCX"
+                $media = $wmp.newMedia($file.FullName)
+                $duration = $media.getItemInfo("Duration")
+                [System.Runtime.InteropServices.Marshal]::ReleaseComObject($media) | Out-Null
+                [System.Runtime.InteropServices.Marshal]::ReleaseComObject($wmp) | Out-Null
+                
+                if ($duration -and $duration -gt 0) {
+                    $totalSeconds = [math]::Floor($duration)
+                    $title = [System.IO.Path]::GetFileNameWithoutExtension($file.Name)
+                    $playlistLines += "#EXTINF:$totalSeconds,$title"
+                }
+            } catch { }
         }
         
         $playlistLines += $relativePath
