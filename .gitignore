@@ -1,0 +1,5 @@
+# Ignore SonicDesk settings
+SonicDesk.settings.json
+
+# Ignore all CSV exports
+*.csv
