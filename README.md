@@ -1,3 +1,5 @@
+![alt text](img/logo-croop.fw.png)
+
 # SonicDesk - README (Updated)
 
 ## 📋 Overview
