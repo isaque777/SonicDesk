@@ -15,6 +15,19 @@ $form.FormBorderStyle = "FixedSingle"
 $form.MaximizeBox = $true
 $form.BackColor = [System.Drawing.Color]::FromArgb(240, 240, 240)
 
+# Load and set window icon from PNG
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+$windowIconPath = Join-Path $scriptPath "img\logo-only.fw.png"
+if (Test-Path $windowIconPath) {
+    try {
+        $bitmap = [System.Drawing.Bitmap]::FromFile($windowIconPath)
+        $icon = [System.Drawing.Icon]::FromHandle($bitmap.GetHicon())
+        $form.Icon = $icon
+    } catch {
+        # Fallback if icon loading fails
+    }
+}
+
 # Add Logo Panel
 $pnlLogo = New-Object System.Windows.Forms.Panel
 $pnlLogo.Width = 1200
@@ -25,16 +38,15 @@ $pnlLogo.BorderStyle = "FixedSingle"
 
 # Add Logo Picture Box
 $picLogo = New-Object System.Windows.Forms.PictureBox
-$picLogo.Width = 80
+$picLogo.Width = 90
 $picLogo.Height = 80
-$picLogo.Location = New-Object System.Drawing.Point(10, 5)
-$picLogo.SizeMode = "StretchImage"
+$picLogo.Location = New-Object System.Drawing.Point(8, 5)
+$picLogo.SizeMode = "Zoom"
 
-# Load logo from file
-$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
-$logoPath = Join-Path $scriptPath "img\logo-full.png"
-if (Test-Path $logoPath) {
-    $picLogo.Image = [System.Drawing.Image]::FromFile($logoPath)
+# Load header logo from file
+$headerLogoPath = Join-Path $scriptPath "img\logo-croop.fw.png"
+if (Test-Path $headerLogoPath) {
+    $picLogo.Image = [System.Drawing.Image]::FromFile($headerLogoPath)
 }
 
 # Add Title Label
